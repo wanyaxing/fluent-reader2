@@ -16,9 +16,9 @@
     "build:extension": "webpack --config ./webpack.extension.js"
   },
   "keywords": [],
-  "author": "Haoyuan Liu",
+  "author": "foryoung365",
   "license": "BSD-3-Clause",
-  "repository": "github:yang991178/fluent-reader",
+  "repository": "github:foryoung365/fluent-reader2",
   "devDependencies": {
     "@fluentui/react": "^7.126.2",
     "@seald-io/nedb": "^4.1.2",

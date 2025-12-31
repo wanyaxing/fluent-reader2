@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
-    "name": "Fluent Reader",
+    "name": "MF RSS Reader",
     "version": "1.0.0",
-    "description": "Modern RSS reader extension",
+    "description": "现代化的 RSS 阅读器扩展，支持 AI 智能摘要、自动翻译，让您高效获取信息。",
     "permissions": [
         "storage",
         "alarms",
@@ -15,7 +15,7 @@
         "service_worker": "background.js"
     },
     "action": {
-        "default_title": "Fluent Reader"
+        "default_title": "MF RSS Reader"
     },
     "icons": {
         "16": "assets/icons/16.png",

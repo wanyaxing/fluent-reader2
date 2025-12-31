@@ -6,13 +6,13 @@ class AboutTab extends React.Component {
     render = () => (
         <div className="tab-body">
             <Stack className="settings-about" horizontalAlign="center">
-                <img src="icons/logo.svg" style={{ width: 120, height: 120 }} />
-                <h3 style={{ fontWeight: 600 }}>Fluent Reader</h3>
+                <img src="assets/icons/128.png" style={{ width: 120, height: 120 }} />
+                <h3 style={{ fontWeight: 600 }}>MF RSS Reader</h3>
                 <small>
                     {intl.get("settings.version")} {window.utils.getVersion()}
                 </small>
                 <p className="settings-hint">
-                    Copyright © 2020 Haoyuan Liu. All rights reserved.
+                    Copyright © 2025 foryoung365. All rights reserved.
                 </p>
                 <Stack
                     horizontal

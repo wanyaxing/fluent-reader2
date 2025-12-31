@@ -158,12 +158,8 @@ class Page extends React.Component<PageProps, PageState> {
                         ) : (
                             <div className="side-logo-wrapper">
                                 <img
-                                    className="light"
-                                    src="icons/logo-outline.svg"
-                                />
-                                <img
-                                    className="dark"
-                                    src="icons/logo-outline-dark.svg"
+                                    src="assets/icons/128.png"
+                                    style={{ width: 128, height: 128 }}
                                 />
                             </div>
                         )}
