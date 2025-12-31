@@ -185,23 +185,26 @@ function syncItems(hook: ServiceHooks["syncItems"]): AppThunk<Promise<void>> {
         const [unreadRefs, starredRefs] = await dispatch(hook())
         const unreadCopy = new Set(unreadRefs)
         const starredCopy = new Set(starredRefs)
+        // Query ALL items with serviceRef to correctly handle local read status
         const rows = await db.itemsDB
             .select(db.items.serviceRef, db.items.hasRead, db.items.starred)
             .from(db.items)
-            .where(
-                lf.op.and(
-                    db.items.serviceRef.isNotNull(),
-                    lf.op.or(
-                        db.items.hasRead.eq(false),
-                        db.items.starred.eq(true)
-                    )
-                )
-            )
+            .where(db.items.serviceRef.isNotNull())
             .exec()
         const updates = new Array<lf.query.Update>()
+        const localReadRefs = new Set<string>() // Track locally read items
         for (let row of rows) {
             const serviceRef = row["serviceRef"]
-            if (row["hasRead"] === false && !unreadRefs.delete(serviceRef)) {
+            const localHasRead = row["hasRead"]
+            const localStarred = row["starred"]
+
+            // Track locally read items to prevent reverting them to unread
+            if (localHasRead) {
+                localReadRefs.add(serviceRef)
+            }
+
+            // If local is unread but server says read, mark as read
+            if (localHasRead === false && !unreadRefs.has(serviceRef)) {
                 updates.push(
                     db.itemsDB
                         .update(db.items)
@@ -209,7 +212,11 @@ function syncItems(hook: ServiceHooks["syncItems"]): AppThunk<Promise<void>> {
                         .where(db.items.serviceRef.eq(serviceRef))
                 )
             }
-            if (row["starred"] === true && !starredRefs.delete(serviceRef)) {
+            // Remove from unreadRefs since we've processed this item
+            unreadRefs.delete(serviceRef)
+
+            // If local is starred but server says not starred, remove star
+            if (localStarred === true && !starredRefs.has(serviceRef)) {
                 updates.push(
                     db.itemsDB
                         .update(db.items)
@@ -217,15 +224,13 @@ function syncItems(hook: ServiceHooks["syncItems"]): AppThunk<Promise<void>> {
                         .where(db.items.serviceRef.eq(serviceRef))
                 )
             }
+            starredRefs.delete(serviceRef)
         }
-        for (let unread of unreadRefs) {
-            updates.push(
-                db.itemsDB
-                    .update(db.items)
-                    .set(db.items.hasRead, false)
-                    .where(db.items.serviceRef.eq(unread))
-            )
-        }
+        // DO NOT revert locally read items to unread based on server state
+        // This prevents the "mark as read" action from being undone by sync
+        // (Removed the loop that set hasRead to false for remaining unreadRefs)
+
+        // For starred, we still sync from server since it's less common to accidentally star
         for (let starred of starredRefs) {
             updates.push(
                 db.itemsDB

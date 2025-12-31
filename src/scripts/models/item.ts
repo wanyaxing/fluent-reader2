@@ -568,7 +568,20 @@ export function itemReducer(
                 case ActionStatus.Success: {
                     let nextState = { ...state }
                     for (let i of action.items) {
-                        nextState[i._id] = i
+                        // Preserve existing hasRead/starred/hidden state if already in memory
+                        const existing = state[i._id]
+                        if (existing) {
+                            // Keep the in-memory state for mutable fields (hasRead, starred, hidden)
+                            // These may have been updated by user actions but not yet persisted/reloaded
+                            nextState[i._id] = {
+                                ...i,
+                                hasRead: existing.hasRead,
+                                starred: existing.starred,
+                                hidden: existing.hidden,
+                            }
+                        } else {
+                            nextState[i._id] = i
+                        }
                     }
                     return nextState
                 }
@@ -581,7 +594,13 @@ export function itemReducer(
             for (let item of Object.values(state)) {
                 if (item.hasOwnProperty("serviceRef")) {
                     const nextItem = { ...item }
-                    nextItem.hasRead = !action.unreadIds.has(item.serviceRef)
+                    const serverHasRead = !action.unreadIds.has(item.serviceRef)
+                    // Only sync hasRead if it becomes true (read), not if it would revert to false (unread)
+                    // This prevents a local "mark as read" from being reverted by stale server state
+                    if (serverHasRead && !item.hasRead) {
+                        nextItem.hasRead = true
+                    }
+                    // For starred, we sync both directions since starring is less common
                     nextItem.starred = action.starredIds.has(item.serviceRef)
                     nextState[item._id] = nextItem
                 }

@@ -371,19 +371,37 @@ export const gReaderServiceHooks: ServiceHooks = {
                 await editTags(getState().service as GReaderConfigs, refs, READ_TAG)
             }
         } else {
-            const sources = sids.map(sid => state.sources[sid])
-            for (let source of sources) {
-                if (source.serviceRef) {
-                    const body = new URLSearchParams()
-                    body.set("s", source.serviceRef)
-                    const res = await fetchAPI(
-                        configs,
-                        "/reader/api/0/mark-all-as-read",
-                        "POST",
-                        body
-                    )
-                    if (!res.ok) throw APIError()
-                }
+            // Query unread items to find which feeds actually need to be marked
+            const predicates: lf.Predicate[] = [
+                db.items.source.in(sids),
+                db.items.hasRead.eq(false),
+                db.items.serviceRef.isNotNull(),
+            ]
+            const query = lf.op.and.apply(null, predicates)
+            const rows = await db.itemsDB
+                .select(db.items.source)
+                .from(db.items)
+                .where(query)
+                .exec()
+
+            // Get unique source IDs that have unread items
+            const unreadSourceIds = new Set<number>(rows.map(row => row["source"]))
+
+            // Only send requests for feeds that actually have unread items
+            const sourcesToMark = Array.from(unreadSourceIds)
+                .map(sid => state.sources[sid])
+                .filter(source => source && source.serviceRef)
+
+            for (let source of sourcesToMark) {
+                const body = new URLSearchParams()
+                body.set("s", source.serviceRef)
+                const res = await fetchAPI(
+                    configs,
+                    "/reader/api/0/mark-all-as-read",
+                    "POST",
+                    body
+                )
+                if (!res.ok) throw APIError()
             }
         }
     },

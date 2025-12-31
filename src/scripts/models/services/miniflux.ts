@@ -311,21 +311,44 @@ export const minifluxServiceHooks: ServiceHooks = {
                 .where(query)
                 .exec()
             const refs = rows.map(row => row["serviceRef"])
-            const body = `{
-                "entry_ids": [${refs}],
-                "status": "read"
-            }`
-            await fetchAPI(configs, "entries", "PUT", body)
+            if (refs.length > 0) {
+                const body = `{
+                    "entry_ids": [${refs}],
+                    "status": "read"
+                }`
+                await fetchAPI(configs, "entries", "PUT", body)
+            }
         } else {
+            // Query unread items to find which feeds actually need to be marked
+            const predicates: lf.Predicate[] = [
+                db.items.source.in(sids),
+                db.items.hasRead.eq(false),
+                db.items.serviceRef.isNotNull(),
+            ]
+            const query = lf.op.and.apply(null, predicates)
+            const rows = await db.itemsDB
+                .select(db.items.source)
+                .from(db.items)
+                .where(query)
+                .exec()
+
+            // Get unique source IDs that have unread items
+            const unreadSourceIds = new Set<number>(rows.map(row => row["source"]))
+
+            // Only send requests for feeds that actually have unread items
             const sources = state.sources
             await Promise.all(
-                sids.map(sid =>
-                    fetchAPI(
-                        configs,
-                        `feeds/${sources[sid]?.serviceRef}/mark-all-as-read`,
-                        "PUT"
-                    )
-                )
+                Array.from(unreadSourceIds).map(sid => {
+                    const serviceRef = sources[sid]?.serviceRef
+                    if (serviceRef) {
+                        return fetchAPI(
+                            configs,
+                            `feeds/${serviceRef}/mark-all-as-read`,
+                            "PUT"
+                        )
+                    }
+                    return Promise.resolve()
+                })
             )
         }
     },
