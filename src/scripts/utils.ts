@@ -1,4 +1,5 @@
 import intl from "react-intl-universal"
+declare var chrome: any;
 import { ThunkAction, ThunkDispatch } from "redux-thunk"
 import { AnyAction } from "redux"
 import { RootState } from "./reducer"
@@ -75,6 +76,26 @@ export async function decodeFetchResponse(response: Response, isHTML = false) {
 
 export async function parseRSS(url: string) {
     let result: Response
+    const isExtension = window.chrome && window.chrome.runtime && window.chrome.runtime.sendMessage
+    console.log("[Utils] parseRSS called for:", url, "isExtension:", !!isExtension);
+
+    if (isExtension) {
+        try {
+            console.log("[Utils] Sending RSS_FETCH message");
+            const response = await new Promise<any>((resolve) => {
+                window.chrome.runtime.sendMessage({ type: "RSS_FETCH", url }, resolve)
+            })
+            console.log("[Utils] Received RSS_FETCH response:", response);
+            if (response.ok) {
+                return await rssParser.parseString(response.text)
+            } else {
+                throw new Error(response.statusText || "Network Error")
+            }
+        } catch (e) {
+            throw new Error(intl.get("log.networkError") + " " + e.message)
+        }
+    }
+
     try {
         result = await fetch(url, { credentials: "omit" })
     } catch {

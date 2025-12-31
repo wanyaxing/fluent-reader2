@@ -59,15 +59,19 @@ type ArticleState = {
     aiTranslationMap: { [key: string]: string }
 }
 
+console.log("[ArticleModule] Article.tsx module loaded");
+
 class Article extends React.Component<ArticleProps, ArticleState> {
     webview: Electron.WebviewTag
 
     constructor(props: ArticleProps) {
         super(props)
+        console.log("[ArticleMain] Constructor called with item:", props.item._id);
         this.state = {
             fontFamily: window.settings.getFont(),
             fontSize: window.settings.getFontSize(),
-            loadWebpage: props.source.openTarget === SourceOpenTarget.Webpage,
+            // In extension, we cannot load webpages in iframe due to CSP. Force false.
+            loadWebpage: props.source.openTarget === SourceOpenTarget.Webpage && !(window.chrome && window.chrome.runtime),
             loadFull: props.source.openTarget === SourceOpenTarget.FullContent,
             fullContent: "",
             loaded: false,
@@ -265,8 +269,61 @@ class Article extends React.Component<ArticleProps, ArticleState> {
 
     webviewLoaded = () => {
         this.setState({ loaded: true })
+
+        // Post content to iframe if extension
+        // @ts-ignore
+        if (window.chrome && window.chrome.runtime && this.webview && this.webview.contentWindow) {
+            const h = renderToString(
+                <>
+                    <p className="title">{this.props.item.title}</p>
+                    <p className="date">
+                        {this.props.item.date.toLocaleString(
+                            this.props.locale,
+                            { hour12: !this.props.locale.startsWith("zh") }
+                        )}
+                    </p>
+                    <style dangerouslySetInnerHTML={{
+                        __html: `
+                        .ai-btn { background: var(--primary); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; margin: 12px 0; display: block; }
+                        .ai-btn:hover { background: var(--primary-alt); }
+                        .ai-summary-card { background: #f3f2f1; padding: 12px; border-radius: 4px; border-left: 4px solid var(--primary); margin: 12px 0; font-size: 14px; line-height: 1.5; }
+                        .ai-summary-content { word-break: break-word; }
+                        .ai-summary-content p { margin-top: 0; }
+                        .ai-summary-content p:last-child { margin-bottom: 0; }
+                        .ai-summary-content ul, .ai-summary-content ol { padding-inline-start: 20px; }
+                        .ai-summary-content code { background: rgba(0,0,0,0.05); padding: 2px 4px; border-radius: 3px; }
+                        @media (prefers-color-scheme: dark) { 
+                            .ai-summary-card { background: #323130; } 
+                            .ai-summary-content code { background: rgba(255,255,255,0.1); }
+                        }
+                        .ai-summary-title { font-weight: 600; margin-top: 0; margin-bottom: 8px; font-size: 12px; color: var(--gray); text-transform: uppercase; }
+                        .ai-summary-loading { color: var(--gray); font-size: 13px; margin: 12px 0; }
+                        .ai-translation { color: var(--primary); font-size: 0.9em; margin-top: 4px; border-left: 2px solid var(--primary-light); padding-left: 8px; opacity: 0.8; }
+                        li .ai-translation { display: block; margin-top: 2px; border-left: none; padding-left: 0; font-style: italic; }
+                    ` }} />
+                    <div id="ai-summary-container"></div>
+                    <article></article>
+                </>
+            )
+            const content = this.state.loadFull ? this.state.fullContent : this.props.item.content
+
+            // @ts-ignore
+            this.webview.contentWindow.postMessage({
+                type: "RENDER_ARTICLE",
+                header: h,
+                content: content,
+                fontFamily: this.state.fontFamily,
+                fontSize: this.state.fontSize,
+                textDir: this.props.source.textDir,
+                isDark: window.settings.shouldUseDarkColors()
+            }, "*")
+        }
+
         if (this.state.aiSummaryEnabled && !this.state.loadWebpage) {
             this.injectAIUI()
+            // ... strict AI logic ...
+            // Simplified for brevity, keeping original logic requires copying it back if I deleted it.
+            // I will ensure I only replaced the top part of the function.
 
             // Auto generation logic
             const settings = window.settings.getAISettings()
@@ -279,7 +336,6 @@ class Article extends React.Component<ArticleProps, ArticleState> {
                     this.generateSummary()
                 }
             }
-
             // AI Translation logic
             if (settings.translateEnabled && Object.keys(this.state.aiTranslationMap).length === 0 && !this.state.aiTranslateLoading) {
                 this.checkAndTranslate()
@@ -427,7 +483,7 @@ class Article extends React.Component<ArticleProps, ArticleState> {
                 console.log("[AI Translate Webview] Injected " + injectedCount + " translations");
             })();
         `
-        this.webview.executeJavaScript(script)
+        this.safeExecuteJavaScript(script)
     }
 
     injectAIUI = () => {
@@ -463,7 +519,7 @@ class Article extends React.Component<ArticleProps, ArticleState> {
                 }
             })();
         `
-        this.webview.executeJavaScript(script)
+        this.safeExecuteJavaScript(script)
     }
 
     generateSummary = async () => {
@@ -497,31 +553,126 @@ class Article extends React.Component<ArticleProps, ArticleState> {
     webviewReload = () => {
         if (this.webview) {
             this.setState({ loaded: false, error: false })
-            this.webview.reload()
+            if (this.webview.reload) {
+                this.webview.reload()
+            } else {
+                // Iframe reload
+                // @ts-ignore
+                this.webview.src = this.webview.src
+            }
         } else if (this.state.loadFull) {
             this.loadFull()
         }
     }
 
     componentDidMount = () => {
-        let webview = document.getElementById("article") as Electron.WebviewTag
+        // @ts-ignore
+        const isExtension = window.chrome && window.chrome.runtime
+        console.log("[ArticleMain] componentDidMount. isExtension:", isExtension);
+        if (isExtension) {
+            window.addEventListener("message", this.handleMessage)
+        }
+
+        let webview = document.getElementById("article") as any
         if (webview != this.webview) {
             this.webview = webview
             if (webview) {
-                webview.focus()
+                console.log("[ArticleMain] Webview/Iframe element found");
+                if (webview.focus) webview.focus()
                 this.setState({ loaded: false, error: false })
-                webview.addEventListener("did-stop-loading", this.webviewLoaded)
-                webview.addEventListener("console-message", (e) => {
-                    if (e.message === "EXECUTE_AI_SUMMARY") {
-                        this.generateSummary()
-                    }
-                })
+                if (isExtension) {
+                    webview.onload = this.webviewLoaded
+                } else {
+                    webview.addEventListener("did-stop-loading", this.webviewLoaded)
+                    webview.addEventListener("console-message", (e: any) => {
+                        if (e.message === "EXECUTE_AI_SUMMARY") {
+                            this.generateSummary()
+                        }
+                    })
+                }
                 let card = document.querySelector(
                     `#refocus div[data-iid="${this.props.item._id}"]`
                 ) as HTMLElement
                 // @ts-ignore
                 if (card) card.scrollIntoViewIfNeeded()
+            } else {
+                console.error("[ArticleMain] Webview/Iframe element NOT found");
             }
+        }
+    }
+
+    componentWillUnmount = () => {
+        window.removeEventListener("message", this.handleMessage)
+        let refocus = document.querySelector(
+            `#refocus div[data-iid="${this.props.item._id}"]`
+        ) as HTMLElement
+        if (refocus) refocus.focus()
+    }
+
+    handleMessage = (event: MessageEvent) => {
+        console.log("[ArticleMain] handleMessage received:", event.data);
+        if (event.data && event.data.type === "READY") {
+            this.sendArticleContent()
+        }
+    }
+
+    sendArticleContent = () => {
+        console.log("[ArticleMain] sendArticleContent called");
+        // @ts-ignore
+        if (window.chrome && window.chrome.runtime && this.webview && this.webview.contentWindow) {
+            console.log("[ArticleMain] Posting RENDER_ARTICLE message to iframe");
+            const h = renderToString(
+                <>
+                    <p className="title">{this.props.item.title}</p>
+                    <p className="date">
+                        {this.props.item.date.toLocaleString(
+                            this.props.locale,
+                            { hour12: !this.props.locale.startsWith("zh") }
+                        )}
+                    </p>
+                    <style dangerouslySetInnerHTML={{
+                        __html: `
+                        .ai-btn { background: var(--primary); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; margin: 12px 0; display: block; }
+                        .ai-btn:hover { background: var(--primary-alt); }
+                        .ai-summary-card { background: #f3f2f1; padding: 12px; border-radius: 4px; border-left: 4px solid var(--primary); margin: 12px 0; font-size: 14px; line-height: 1.5; }
+                        .ai-summary-content { word-break: break-word; }
+                        .ai-summary-content p { margin-top: 0; }
+                        .ai-summary-content p:last-child { margin-bottom: 0; }
+                        .ai-summary-content ul, .ai-summary-content ol { padding-inline-start: 20px; }
+                        .ai-summary-content code { background: rgba(0,0,0,0.05); padding: 2px 4px; border-radius: 3px; }
+                        @media (prefers-color-scheme: dark) { 
+                            .ai-summary-card { background: #323130; } 
+                            .ai-summary-content code { background: rgba(255,255,255,0.1); }
+                        }
+                        .ai-summary-title { font-weight: 600; margin-top: 0; margin-bottom: 8px; font-size: 12px; color: var(--gray); text-transform: uppercase; }
+                        .ai-summary-loading { color: var(--gray); font-size: 13px; margin: 12px 0; }
+                        .ai-translation { color: var(--primary); font-size: 0.9em; margin-top: 4px; border-left: 2px solid var(--primary-light); padding-left: 8px; opacity: 0.8; }
+                        li .ai-translation { display: block; margin-top: 2px; border-left: none; padding-left: 0; font-style: italic; }
+                    ` }} />
+                    <div id="ai-summary-container"></div>
+                    <article></article>
+                </>
+            )
+            const content = this.state.loadFull ? this.state.fullContent : this.props.item.content
+
+            // @ts-ignore
+            this.webview.contentWindow.postMessage({
+                type: "RENDER_ARTICLE",
+                header: h,
+                content: content,
+                fontFamily: this.state.fontFamily,
+                fontSize: this.state.fontSize,
+                textDir: this.props.source.textDir,
+                isDark: window.settings.shouldUseDarkColors()
+            }, "*")
+        }
+    }
+
+    // Safety check for executeJavaScript
+    safeExecuteJavaScript = (script: string) => {
+        // @ts-ignore
+        if (this.webview && this.webview.executeJavaScript) {
+            this.webview.executeJavaScript(script)
         }
     }
     componentDidUpdate = (prevProps: ArticleProps) => {
@@ -548,23 +699,27 @@ class Article extends React.Component<ArticleProps, ArticleState> {
         this.componentDidMount()
     }
 
-    componentWillUnmount = () => {
-        let refocus = document.querySelector(
-            `#refocus div[data-iid="${this.props.item._id}"]`
-        ) as HTMLElement
-        if (refocus) refocus.focus()
-    }
+
 
     toggleWebpage = () => {
+        // @ts-ignore
+        const isExtension = window.chrome && window.chrome.runtime
+
         if (this.state.loadWebpage) {
             this.setState({ loadWebpage: false })
         } else if (
             this.props.item.link.startsWith("https://") ||
             this.props.item.link.startsWith("http://")
         ) {
-            this.setState({ loadWebpage: true, loadFull: false })
+            if (isExtension) {
+                // In extension mode, open in new tab instead of iframe (CSP blocks external pages)
+                window.utils.openExternal(this.props.item.link, false)
+            } else {
+                this.setState({ loadWebpage: true, loadFull: false })
+            }
         }
     }
+
 
     toggleFull = () => {
         if (this.state.loadFull) {
@@ -644,142 +799,165 @@ class Article extends React.Component<ArticleProps, ArticleState> {
             }&m=${this.state.loadFull ? 1 : 0}`
     }
 
-    render = () => (
-        <FocusZone className="article">
-            <Stack horizontal style={{ height: 36 }}>
-                <span style={{ width: 96 }}></span>
-                <Stack
-                    className="actions"
-                    grow
-                    horizontal
-                    tokens={{ childrenGap: 12 }}>
-                    <Stack.Item grow>
-                        <span className="source-name">
-                            {this.state.loaded ? (
-                                this.props.source.iconurl && (
-                                    <img
-                                        className="favicon"
-                                        src={this.props.source.iconurl}
-                                    />
-                                )
-                            ) : (
-                                <Spinner size={1} />
-                            )}
-                            {this.props.source.name}
-                            {this.props.item.creator && (
-                                <span className="creator">
-                                    {this.props.item.creator}
-                                </span>
-                            )}
-                        </span>
-                    </Stack.Item>
-                    <CommandBarButton
-                        title={
-                            this.props.item.hasRead
-                                ? intl.get("article.markUnread")
-                                : intl.get("article.markRead")
-                        }
-                        iconProps={
-                            this.props.item.hasRead
-                                ? { iconName: "StatusCircleRing" }
-                                : {
-                                    iconName: "RadioBtnOn",
-                                    style: {
-                                        fontSize: 14,
-                                        textAlign: "center",
-                                    },
-                                }
-                        }
-                        onClick={() =>
-                            this.props.toggleHasRead(this.props.item)
-                        }
-                    />
-                    <CommandBarButton
-                        title={
-                            this.props.item.starred
-                                ? intl.get("article.unstar")
-                                : intl.get("article.star")
-                        }
-                        iconProps={{
-                            iconName: this.props.item.starred
-                                ? "FavoriteStarFill"
-                                : "FavoriteStar",
-                        }}
-                        onClick={() =>
-                            this.props.toggleStarred(this.props.item)
-                        }
-                    />
-                    <CommandBarButton
-                        title={intl.get("article.loadFull")}
-                        className={this.state.loadFull ? "active" : ""}
-                        iconProps={{ iconName: "RawSource" }}
-                        onClick={this.toggleFull}
-                    />
-                    <CommandBarButton
-                        title={intl.get("article.loadWebpage")}
-                        className={this.state.loadWebpage ? "active" : ""}
-                        iconProps={{ iconName: "Globe" }}
-                        onClick={this.toggleWebpage}
-                    />
-                    <CommandBarButton
-                        title={intl.get("more")}
-                        iconProps={{ iconName: "More" }}
-                        menuIconProps={{ style: { display: "none" } }}
-                        menuProps={this.moreMenuProps()}
-                    />
-                </Stack>
-                <Stack horizontal horizontalAlign="end" style={{ width: 112 }}>
-                    <CommandBarButton
-                        title={intl.get("close")}
-                        iconProps={{ iconName: "BackToWindow" }}
-                        onClick={this.props.dismiss}
-                    />
-                </Stack>
-            </Stack>
-            {(!this.state.loadFull || this.state.fullContent) && (
-                <webview
-                    id="article"
-                    className={this.state.error ? "error" : ""}
-                    key={
-                        this.props.item._id +
-                        (this.state.loadWebpage ? "_" : "") +
-                        (this.state.loadFull ? "__" : "")
-                    }
-                    src={
-                        this.state.loadWebpage
-                            ? this.props.item.link
-                            : this.articleView()
-                    }
-                    allowpopups={"true" as unknown as boolean}
-                    webpreferences="contextIsolation,disableDialogs,autoplayPolicy=document-user-activation-required"
-                    partition={this.state.loadWebpage ? "sandbox" : undefined}
-                />
-            )}
-            {this.state.error && (
-                <Stack
-                    className="error-prompt"
-                    verticalAlign="center"
-                    horizontalAlign="center"
-                    tokens={{ childrenGap: 12 }}>
-                    <Icon iconName="HeartBroken" style={{ fontSize: 32 }} />
+    render = () => {
+        console.log("[ArticleMain] render called");
+        return (
+            <FocusZone className="article" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                <Stack horizontal style={{ height: 36 }}>
+                    <span style={{ width: 96 }}></span>
                     <Stack
+                        className="actions"
+                        grow
                         horizontal
-                        horizontalAlign="center"
-                        tokens={{ childrenGap: 7 }}>
-                        <small>{intl.get("article.error")}</small>
-                        <small>
-                            <Link onClick={this.webviewReload}>
-                                {intl.get("article.reload")}
-                            </Link>
-                        </small>
+                        tokens={{ childrenGap: 12 }}>
+                        <Stack.Item grow>
+                            <span className="source-name">
+                                {this.state.loaded ? (
+                                    this.props.source.iconurl && (
+                                        <img
+                                            className="favicon"
+                                            src={this.props.source.iconurl}
+                                        />
+                                    )
+                                ) : (
+                                    <Spinner size={1} />
+                                )}
+                                {this.props.source.name}
+                                {this.props.item.creator && (
+                                    <span className="creator">
+                                        {this.props.item.creator}
+                                    </span>
+                                )}
+                            </span>
+                        </Stack.Item>
+                        <CommandBarButton
+                            title={
+                                this.props.item.hasRead
+                                    ? intl.get("article.markUnread")
+                                    : intl.get("article.markRead")
+                            }
+                            iconProps={
+                                this.props.item.hasRead
+                                    ? { iconName: "StatusCircleRing" }
+                                    : {
+                                        iconName: "RadioBtnOn",
+                                        style: {
+                                            fontSize: 14,
+                                            textAlign: "center",
+                                        },
+                                    }
+                            }
+                            onClick={() =>
+                                this.props.toggleHasRead(this.props.item)
+                            }
+                        />
+                        <CommandBarButton
+                            title={
+                                this.props.item.starred
+                                    ? intl.get("article.unstar")
+                                    : intl.get("article.star")
+                            }
+                            iconProps={{
+                                iconName: this.props.item.starred
+                                    ? "FavoriteStarFill"
+                                    : "FavoriteStar",
+                            }}
+                            onClick={() =>
+                                this.props.toggleStarred(this.props.item)
+                            }
+                        />
+                        <CommandBarButton
+                            title={intl.get("article.loadFull")}
+                            className={this.state.loadFull ? "active" : ""}
+                            iconProps={{ iconName: "RawSource" }}
+                            onClick={this.toggleFull}
+                        />
+                        <CommandBarButton
+                            title={intl.get("article.loadWebpage")}
+                            className={this.state.loadWebpage ? "active" : ""}
+                            iconProps={{ iconName: "Globe" }}
+                            onClick={this.toggleWebpage}
+                        />
+                        <CommandBarButton
+                            title={intl.get("more")}
+                            iconProps={{ iconName: "More" }}
+                            menuIconProps={{ style: { display: "none" } }}
+                            menuProps={this.moreMenuProps()}
+                        />
                     </Stack>
-                    <span style={{ fontSize: 11 }}>
-                        {this.state.errorDescription}
-                    </span>
+                    <Stack horizontal horizontalAlign="end" style={{ width: 112 }}>
+                        <CommandBarButton
+                            title={intl.get("close")}
+                            iconProps={{ iconName: "BackToWindow" }}
+                            onClick={this.props.dismiss}
+                        />
+                    </Stack>
                 </Stack>
-            )}
-        </FocusZone>
-    )
+                {(!this.state.loadFull || this.state.fullContent) && (
+                    // @ts-ignore
+                    window.chrome && window.chrome.runtime ? (
+                        <iframe
+                            id="article"
+                            className={this.state.error ? "error" : ""}
+                            key={
+                                this.props.item._id +
+                                (this.state.loadWebpage ? "_" : "") +
+                                (this.state.loadFull ? "__" : "")
+                            }
+                            src={
+                                this.state.loadWebpage
+                                    ? this.props.item.link
+                                    : "article/article.html"
+                            }
+                            sandbox="allow-scripts allow-popups allow-forms allow-same-origin"
+                            style={{ border: "none", flex: 1, width: "100%", height: "100%" }}
+                        />
+                    ) : (
+                        <webview
+                            id="article"
+                            className={this.state.error ? "error" : ""}
+                            key={
+                                this.props.item._id +
+                                (this.state.loadWebpage ? "_" : "") +
+                                (this.state.loadFull ? "__" : "")
+                            }
+                            src={
+                                this.state.loadWebpage
+                                    ? this.props.item.link
+                                    : this.articleView()
+                            }
+                            allowpopups={"true" as unknown as boolean}
+                            webpreferences="contextIsolation,disableDialogs,autoplayPolicy=document-user-activation-required"
+                            partition={this.state.loadWebpage ? "sandbox" : undefined}
+                        />
+                    )
+                )}
+                {this.state.error && (
+                    <Stack
+                        className="error-prompt"
+                        verticalAlign="center"
+                        horizontalAlign="center"
+                        tokens={{ childrenGap: 12 }}>
+                        <Icon iconName="HeartBroken" style={{ fontSize: 32 }} />
+                        <Stack
+                            horizontal
+                            horizontalAlign="center"
+                            tokens={{ childrenGap: 7 }}>
+                            <small>{intl.get("article.error")}</small>
+                            <small>
+                                <Link onClick={this.webviewReload}>
+                                    {intl.get("article.reload")}
+                                </Link>
+                            </small>
+                        </Stack>
+                        <span style={{ fontSize: 11 }}>
+                            {this.state.errorDescription}
+                        </span>
+                    </Stack>
+                )}
+            </FocusZone>
+        )
+    }
 }
 
 export default Article

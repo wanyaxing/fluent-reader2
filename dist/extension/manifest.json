@@ -1,0 +1,28 @@
+{
+    "manifest_version": 3,
+    "name": "Fluent Reader",
+    "version": "1.0.0",
+    "description": "Modern RSS reader extension",
+    "permissions": [
+        "storage",
+        "alarms",
+        "unlimitedStorage"
+    ],
+    "host_permissions": [
+        "*://*/*"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "action": {
+        "default_title": "Fluent Reader"
+    },
+    "icons": {
+        "16": "assets/icons/16.png",
+        "48": "assets/icons/48.png",
+        "128": "assets/icons/128.png"
+    },
+    "content_security_policy": {
+        "extension_pages": "script-src 'self'; object-src 'self'"
+    }
+}

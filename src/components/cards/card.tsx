@@ -31,6 +31,7 @@ export namespace Card {
     })
 
     const onClick = (props: Props, e: React.MouseEvent) => {
+        console.log("[Card] onClick. OpenTarget:", props.source.openTarget);
         e.preventDefault()
         e.stopPropagation()
         switch (props.source.openTarget) {

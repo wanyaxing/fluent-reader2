@@ -33,15 +33,18 @@ const makeMapStateToProps = () => {
             getViewConfigs,
             getCurrentItem,
         ],
-        (sources, items, feed, viewType, filter, viewConfigs, currentItem) => ({
-            feed: feed,
-            items: feed.iids.map(iid => items[iid]),
-            sourceMap: sources,
-            filter: filter,
-            viewType: viewType,
-            viewConfigs: viewConfigs,
-            currentItem: currentItem,
-        })
+        (sources, items, feed, viewType, filter, viewConfigs, currentItem) => {
+            console.log("[FeedContainer] State mapped. Feed:", feed?._id, "ItemCount:", feed?.iids?.length, "ItemsLoaded:", feed?.loaded);
+            return {
+                feed: feed,
+                items: feed.iids.map(iid => items[iid]),
+                sourceMap: sources,
+                filter: filter,
+                viewType: viewType,
+                viewConfigs: viewConfigs,
+                currentItem: currentItem,
+            }
+        }
     )
 }
 const mapDispatchToProps = dispatch => {

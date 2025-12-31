@@ -233,12 +233,15 @@ export function updateUnreadCounts(): AppThunk<Promise<void>> {
 
 export function initSources(): AppThunk<Promise<void>> {
     return async dispatch => {
+        console.log("[Source] initSources called");
         dispatch(initSourcesRequest())
         await db.init()
+        console.log("[Source] DB initialized");
         const sources = (await db.sourcesDB
             .select()
             .from(db.sources)
             .exec()) as RSSSource[]
+        console.log("[Source] DB sources loaded. Count:", sources.length);
         const state: SourceState = {}
         for (let source of sources) {
             source.unreadCount = 0

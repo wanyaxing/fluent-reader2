@@ -132,19 +132,24 @@ export function setViewConfigs(configs: ViewConfigs): AppThunk {
 
 export function showItem(feedId: string, item: RSSItem): AppThunk {
     return (dispatch, getState) => {
+        console.log("[Redux] showItem called for item:", item._id, "feedId:", feedId);
         const state = getState()
         if (
             state.items.hasOwnProperty(item._id) &&
             state.sources.hasOwnProperty(item.source)
         ) {
+            console.log("[Redux] Dispatching SHOW_ITEM");
             dispatch({
                 type: SHOW_ITEM,
                 feedId: feedId,
                 item: item,
             })
+        } else {
+            console.error("[Redux] showItem failed: item or source missing in state");
         }
     }
 }
+
 export function showItemFromId(iid: number): AppThunk {
     return (dispatch, getState) => {
         const state = getState()
@@ -329,6 +334,7 @@ export function pageReducer(
                 filter: action.filter,
             }
         case SHOW_ITEM:
+            console.log("[Redux] Reducer received SHOW_ITEM:", action.item._id);
             return {
                 ...state,
                 itemId: action.item._id,

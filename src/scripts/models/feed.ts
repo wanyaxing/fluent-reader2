@@ -122,17 +122,28 @@ export class RSSFeed {
         const predicates = FeedFilter.toPredicates(feed.filter)
         predicates.push(db.items.source.in(feed.sids))
         const sortDirection = window.settings.getSortDirection()
-        return (await db.itemsDB
-            .select()
-            .from(db.items)
-            .where(lf.op.and.apply(null, predicates))
-            .orderBy(
-                db.items.date,
-                sortDirection === 0 ? lf.Order.DESC : lf.Order.ASC
-            )
-            .skip(skip)
-            .limit(LOAD_QUANTITY)
-            .exec()) as RSSItem[]
+
+        console.log(`[FeedDebug] loadFeed ${feed._id}. SIDs: ${feed.sids.length}, Filter: ${feed.filter.type}, Skip: ${skip}`);
+        if (feed.sids.length === 0) console.warn("[FeedDebug] Warning: No SIDs in feed!");
+
+        try {
+            const results = (await db.itemsDB
+                .select()
+                .from(db.items)
+                .where(lf.op.and.apply(null, predicates))
+                .orderBy(
+                    db.items.date,
+                    sortDirection === 0 ? lf.Order.DESC : lf.Order.ASC
+                )
+                .skip(skip)
+                .limit(LOAD_QUANTITY)
+                .exec()) as RSSItem[]
+            console.log(`[FeedDebug] Query returned ${results.length} items.`);
+            return results;
+        } catch (e) {
+            console.error("[FeedDebug] Query Failed:", e);
+            throw e;
+        }
     }
 }
 
@@ -235,13 +246,18 @@ export function initFeeds(force = false): AppThunk<Promise<void>> {
     return (dispatch, getState) => {
         dispatch(initFeedsRequest())
         let promises = new Array<Promise<void>>()
-        for (let feed of Object.values(getState().feeds)) {
+        const feeds = Object.values(getState().feeds);
+        console.log("[Feed] initFeeds called. Feeds count:", feeds.length);
+        for (let feed of feeds) {
             if (!feed.loaded || force) {
+                console.log("[Feed] Loading feed:", feed._id);
                 let p = RSSFeed.loadFeed(feed)
                     .then(items => {
+                        console.log("[Feed] Loaded feed:", feed._id, "Items:", items.length);
                         dispatch(initFeedSuccess(feed, items))
                     })
                     .catch(err => {
+                        console.log("[Feed] Load failure for:", feed._id, err);
                         console.log(err)
                         dispatch(initFeedFailure(err))
                     })

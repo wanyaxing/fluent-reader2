@@ -26,13 +26,39 @@ export const rootReducer = combineReducers({
     app: appReducer,
 })
 
-export const rootStore = createStore(
-    rootReducer,
-    applyMiddleware<AppDispatch, RootState>(thunkMiddleware)
-)
-
-export type AppStore = typeof rootStore
 export type RootState = ReturnType<typeof rootReducer>
+
+// Store with properly typed dispatch
+type StoreWithThunk = ReturnType<typeof createStore> & { dispatch: AppDispatch }
+
+// Lazy-create store to ensure settings are loaded first
+let _rootStore: StoreWithThunk | null = null
+
+export const createRootStore = (): StoreWithThunk => {
+    if (!_rootStore) {
+        _rootStore = createStore(
+            rootReducer,
+            applyMiddleware<AppDispatch, RootState>(thunkMiddleware)
+        ) as StoreWithThunk
+    }
+    return _rootStore
+}
+
+export const getRootStore = (): StoreWithThunk => {
+    if (!_rootStore) {
+        throw new Error("Store not initialized. Call createRootStore() first.")
+    }
+    return _rootStore
+}
+
+// For backwards compatibility - will throw if accessed before init
+export const rootStore = new Proxy({} as StoreWithThunk, {
+    get(_, prop) {
+        return getRootStore()[prop as keyof StoreWithThunk]
+    }
+})
+
+export type AppStore = StoreWithThunk
 
 export const useAppDispatch: () => AppDispatch = useDispatch
 export const useAppSelector: TypedUseSelectorHook<RootState> = useSelector

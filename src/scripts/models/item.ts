@@ -256,16 +256,19 @@ export function fetchItems(
                 sids === null
                     ? Object.values(sourcesState).filter(s => {
                         let last = s.lastFetched ? s.lastFetched.getTime() : 0
-                        return (
+                        const shouldFetch = (
                             !s.serviceRef &&
                             (last > timenow ||
                                 last + (s.fetchFrequency || 0) * 60000 <=
                                 timenow)
                         )
+                        // console.log(`[Fetch] Source ${s.sid} (${s.name}): last=${last}, now=${timenow}, freq=${s.fetchFrequency}, shouldFetch=${shouldFetch}`)
+                        return shouldFetch
                     })
                     : sids
                         .map(sid => sourcesState[sid])
                         .filter(s => !s.serviceRef)
+            console.log("[Fetch] fetchItems called. Sources to fetch:", sources.length);
             for (let source of sources) {
                 let promise = RSSSource.fetchItems(source)
                 promise.then(() =>

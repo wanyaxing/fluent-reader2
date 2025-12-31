@@ -76,8 +76,9 @@ class Page extends React.Component<PageProps, PageState> {
     prevItem = (event: React.MouseEvent) => this.offsetItem(event, -1)
     nextItem = (event: React.MouseEvent) => this.offsetItem(event, 1)
 
-    render = () =>
-        this.props.viewType !== ViewType.List ? (
+    render = () => {
+        console.log("[Page] render. settingsOn:", this.props.settingsOn, "itemId:", this.props.itemId);
+        return this.props.viewType !== ViewType.List ? (
             <>
                 {this.props.settingsOn ? null : (
                     <div
@@ -170,6 +171,7 @@ class Page extends React.Component<PageProps, PageState> {
                 )}
             </>
         )
+    }
 }
 
 export default Page

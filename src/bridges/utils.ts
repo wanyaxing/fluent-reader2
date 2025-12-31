@@ -1,4 +1,6 @@
+console.log("[Bridge] Loading utils.ts");
 import { ipcRenderer } from "electron"
+declare var chrome: any;
 import {
     ImageCallbackTypes,
     TouchBarTexts,
@@ -7,19 +9,30 @@ import {
 } from "../schema-types"
 import { IObjectWithKey } from "@fluentui/react"
 
+const isExtension = !ipcRenderer
+
 const utilsBridge = {
-    platform: process.platform,
+    platform: isExtension ? "web" : process.platform,
 
     getVersion: (): string => {
+        if (isExtension) return "Extension"
         return ipcRenderer.sendSync("get-version")
     },
 
     openExternal: (url: string, background = false) => {
-        ipcRenderer.invoke("open-external", url, background)
+        if (isExtension) {
+            chrome.runtime.sendMessage({ type: "OPEN_EXTERNAL", url })
+        } else {
+            ipcRenderer.invoke("open-external", url, background)
+        }
     },
 
     showErrorBox: (title: string, content: string, copy?: string) => {
-        ipcRenderer.invoke("show-error-box", title, content, copy)
+        if (isExtension) {
+            alert(`${title}\n${content}`)
+        } else {
+            ipcRenderer.invoke("show-error-box", title, content, copy)
+        }
     },
 
     showMessageBox: async (
@@ -30,6 +43,10 @@ const utilsBridge = {
         defaultCancel = false,
         type = "none"
     ) => {
+        if (isExtension) {
+            const result = confirm ? window.confirm(message) : window.alert(message)
+            return result
+        }
         return (await ipcRenderer.invoke(
             "show-message-box",
             title,
@@ -42,6 +59,7 @@ const utilsBridge = {
     },
 
     showSaveDialog: async (filters: Electron.FileFilter[], path: string) => {
+        if (isExtension) return null
         let result = (await ipcRenderer.invoke(
             "show-save-dialog",
             filters,
@@ -57,20 +75,23 @@ const utilsBridge = {
     },
 
     showOpenDialog: async (filters: Electron.FileFilter[]) => {
+        if (isExtension) return null
         return (await ipcRenderer.invoke("show-open-dialog", filters)) as string
     },
 
     getCacheSize: async (): Promise<number> => {
+        if (isExtension) return 0
         return await ipcRenderer.invoke("get-cache")
     },
 
     clearCache: async () => {
-        await ipcRenderer.invoke("clear-cache")
+        if (!isExtension) await ipcRenderer.invoke("clear-cache")
     },
 
     addMainContextListener: (
         callback: (pos: [number, number], text: string) => any
     ) => {
+        if (isExtension) return
         ipcRenderer.removeAllListeners("window-context-menu")
         ipcRenderer.on("window-context-menu", (_, pos, text) => {
             callback(pos, text)
@@ -79,16 +100,18 @@ const utilsBridge = {
     addWebviewContextListener: (
         callback: (pos: [number, number], text: string, url: string) => any
     ) => {
+        if (isExtension) return
         ipcRenderer.removeAllListeners("webview-context-menu")
         ipcRenderer.on("webview-context-menu", (_, pos, text, url) => {
             callback(pos, text, url)
         })
     },
     imageCallback: (type: ImageCallbackTypes) => {
-        ipcRenderer.invoke("image-callback", type)
+        if (!isExtension) ipcRenderer.invoke("image-callback", type)
     },
 
     addWebviewKeydownListener: (callback: (event: Electron.Input) => any) => {
+        if (isExtension) return
         ipcRenderer.removeAllListeners("webview-keydown")
         ipcRenderer.on("webview-keydown", (_, input) => {
             callback(input)
@@ -96,6 +119,7 @@ const utilsBridge = {
     },
 
     addWebviewErrorListener: (callback: (reason: string) => any) => {
+        if (isExtension) return
         ipcRenderer.removeAllListeners("webview-error")
         ipcRenderer.on("webview-error", (_, reason) => {
             callback(reason)
@@ -103,36 +127,44 @@ const utilsBridge = {
     },
 
     writeClipboard: (text: string) => {
-        ipcRenderer.invoke("write-clipboard", text)
+        if (isExtension) {
+            navigator.clipboard.writeText(text)
+        } else {
+            ipcRenderer.invoke("write-clipboard", text)
+        }
     },
 
     closeWindow: () => {
-        ipcRenderer.invoke("close-window")
+        if (!isExtension) ipcRenderer.invoke("close-window")
     },
     minimizeWindow: () => {
-        ipcRenderer.invoke("minimize-window")
+        if (!isExtension) ipcRenderer.invoke("minimize-window")
     },
     maximizeWindow: () => {
-        ipcRenderer.invoke("maximize-window")
+        if (!isExtension) ipcRenderer.invoke("maximize-window")
     },
     isMaximized: () => {
+        if (isExtension) return false
         return ipcRenderer.sendSync("is-maximized") as boolean
     },
     isFullscreen: () => {
+        if (isExtension) return false
         return ipcRenderer.sendSync("is-fullscreen") as boolean
     },
     isFocused: () => {
+        if (isExtension) return true
         return ipcRenderer.sendSync("is-focused") as boolean
     },
     focus: () => {
-        ipcRenderer.invoke("request-focus")
+        if (!isExtension) ipcRenderer.invoke("request-focus")
     },
     requestAttention: () => {
-        ipcRenderer.invoke("request-attention")
+        if (!isExtension) ipcRenderer.invoke("request-attention")
     },
     addWindowStateListener: (
         callback: (type: WindowStateListenerType, state: boolean) => any
     ) => {
+        if (isExtension) return
         ipcRenderer.removeAllListeners("maximized")
         ipcRenderer.on("maximized", () => {
             callback(WindowStateListenerType.Maximized, true)
@@ -160,28 +192,33 @@ const utilsBridge = {
     },
 
     addTouchBarEventsListener: (callback: (IObjectWithKey) => any) => {
+        if (isExtension) return
         ipcRenderer.removeAllListeners("touchbar-event")
         ipcRenderer.on("touchbar-event", (_, key: string) => {
             callback({ key: key })
         })
     },
     initTouchBar: (texts: TouchBarTexts) => {
-        ipcRenderer.invoke("touchbar-init", texts)
+        if (!isExtension) ipcRenderer.invoke("touchbar-init", texts)
     },
     destroyTouchBar: () => {
-        ipcRenderer.invoke("touchbar-destroy")
+        if (!isExtension) ipcRenderer.invoke("touchbar-destroy")
     },
 
     initFontList: (): Promise<Array<string>> => {
+        if (isExtension) return Promise.resolve(["Arial", "Helvetica", "Times New Roman", "Courier New"])
         return ipcRenderer.invoke("init-font-list")
     },
     generateSummary: (settings: AISettings, title: string, content: string, targetLanguage: string): Promise<string> => {
+        if (isExtension) return Promise.resolve("AI Summary not supported in extension mode yet.")
         return ipcRenderer.invoke("generate-ai-summary", settings, title, content, targetLanguage)
     },
     generateTranslation: (settings: AISettings, targetLanguage: string, jsonContent: string): Promise<string> => {
+        if (isExtension) return Promise.resolve("")
         return ipcRenderer.invoke("generate-ai-translation", settings, targetLanguage, jsonContent)
     },
     testAISettings: (settings: AISettings): Promise<{ success: boolean; message?: string }> => {
+        if (isExtension) return Promise.resolve({ success: false, message: "Not supported" })
         return ipcRenderer.invoke("test-ai-settings", settings)
     },
 }
