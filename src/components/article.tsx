@@ -373,6 +373,7 @@ class Article extends React.Component<ArticleProps, ArticleState> {
         console.log(`[AI Translate] Target language code: ${targetLangCode}, target name: ${targetName}`)
 
         let nonTargetCount = 0
+        let targetMatchCount = 0
         let totalChecked = 0
 
         for (const chunk of chunks) {
@@ -382,39 +383,58 @@ class Article extends React.Component<ArticleProps, ArticleState> {
             const detected = lngDetector.detect(trimmed, 1)
             const topResult = detected[0]
 
-            if (topResult) {
-                // If detected language is not target and confidence is high enough
-                if (topResult[0] !== targetName && topResult[1] > 0.1) {
+            if (topResult && topResult[1] > 0.1) {
+                // Detection succeeded with reasonable confidence
+                if (topResult[0] === targetName) {
+                    targetMatchCount++
+                    console.log(`[AI Translate] Chunk "${trimmed.substring(0, 30)}..." detected as ${topResult[0]} (conf: ${topResult[1].toFixed(2)}), matches target.`)
+                } else {
                     nonTargetCount++
                     console.log(`[AI Translate] Chunk "${trimmed.substring(0, 30)}..." detected as ${topResult[0]} (conf: ${topResult[1].toFixed(2)}), not target.`)
-                } else {
-                    console.log(`[AI Translate] Chunk "${trimmed.substring(0, 30)}..." detected as ${topResult[0]} (conf: ${topResult[1].toFixed(2)}), matches target or low confidence.`)
                 }
             } else {
-                // If detection fails (common for CJK with this library)
-                // If target is CJK, and detection failed, we assume it's NOT the target language
-                // and thus needs translation. This is a simple strategy to trigger translation for CJK.
-                if (targetName === "chinese" || targetName === "japanese" || targetName === "korean") {
+                // Detection failed or low confidence
+                // Check if the chunk contains CJK characters
+                const hasCJK = /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/.test(trimmed)
+                const targetIsCJK = targetName === "chinese" || targetName === "japanese" || targetName === "korean"
+
+                if (hasCJK && targetIsCJK) {
+                    // If chunk has CJK and target is CJK, assume it might already be target language
+                    // Don't count as non-target
+                    targetMatchCount++
+                    console.log(`[AI Translate] Chunk "${trimmed.substring(0, 30)}..." detection failed/low conf, has CJK and target is CJK. Assuming target match.`)
+                } else if (hasCJK && !targetIsCJK) {
+                    // Chunk has CJK but target is not CJK, needs translation
                     nonTargetCount++
-                    console.log(`[AI Translate] Chunk "${trimmed.substring(0, 30)}..." detection failed, target is CJK. Assuming non-target.`)
+                    console.log(`[AI Translate] Chunk "${trimmed.substring(0, 30)}..." detection failed/low conf, has CJK but target is not CJK. Assuming non-target.`)
+                } else if (!hasCJK && targetIsCJK) {
+                    // Chunk is non-CJK but target is CJK, needs translation
+                    nonTargetCount++
+                    console.log(`[AI Translate] Chunk "${trimmed.substring(0, 30)}..." detection failed/low conf, no CJK but target is CJK. Assuming non-target.`)
                 } else {
-                    // If detection fails and target is not CJK, also assume non-target.
-                    nonTargetCount++
-                    console.log(`[AI Translate] Chunk "${trimmed.substring(0, 30)}..." detection failed, target is non-CJK. Assuming non-target.`)
+                    // Both are non-CJK, detection failed, skip this chunk (don't count)
+                    totalChecked--
+                    console.log(`[AI Translate] Chunk "${trimmed.substring(0, 30)}..." detection failed/low conf, both non-CJK. Skipping.`)
                 }
             }
         }
 
         const nonTargetRatio = totalChecked > 0 ? nonTargetCount / totalChecked : 0
-        console.log(`[AI Translate] Detection: target=${targetName}, ratio=${nonTargetRatio.toFixed(2)} (${nonTargetCount}/${totalChecked})`)
+        const targetMatchRatio = totalChecked > 0 ? targetMatchCount / totalChecked : 0
+        console.log(`[AI Translate] Detection: target=${targetName}, nonTargetRatio=${nonTargetRatio.toFixed(2)} (${nonTargetCount}/${totalChecked}), targetMatchRatio=${targetMatchRatio.toFixed(2)} (${targetMatchCount}/${totalChecked})`)
 
-        if (nonTargetRatio > 0.2) {
+        // Only trigger translation if more than 20% is non-target AND less than 50% matches target
+        // This prevents translating articles that are already mostly in the target language
+        if (nonTargetRatio > 0.2 && targetMatchRatio < 0.5) {
             console.log("[AI Translate] Triggering translation...")
             this.performTranslation(tmp, targetLangCode)
+        } else {
+            console.log(`[AI Translate] Skipping translation. Article appears to be in target language or detection inconclusive.`)
         }
     }
 
     performTranslation = async (root: HTMLElement, targetLang: string) => {
+        const currentItemId = this.props.item._id
         this.setState({ aiTranslateLoading: true })
         // Use the article tag if present, otherwise fallout to root
         const article = root.querySelector("article") || root
@@ -436,9 +456,15 @@ class Article extends React.Component<ArticleProps, ArticleState> {
         }
 
         const settings = window.settings.getAISettings()
-        console.log(`[AI Translate] Calling API for ${count} elements...`)
+        console.log(`[AI Translate] Calling API for ${count} elements, itemId: ${currentItemId}...`)
         const resultJson = await window.utils.generateTranslation(settings, targetLang, JSON.stringify(jsonToTranslate))
         console.log(`[AI Translate] API Response length: ${resultJson.length}`)
+
+        // Check if the article has changed during the API call
+        if (this.props.item._id !== currentItemId) {
+            console.log(`[AI Translate] Article changed (${currentItemId} -> ${this.props.item._id}), discarding translation result.`)
+            return
+        }
 
         try {
             const translatedMap = JSON.parse(resultJson)

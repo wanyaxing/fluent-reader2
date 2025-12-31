@@ -23,6 +23,6 @@
         "128": "assets/icons/128.png"
     },
     "content_security_policy": {
-        "extension_pages": "script-src 'self'; object-src 'self'"
+        "extension_pages": "script-src 'self'; object-src 'self'; media-src 'self' https: http: data:; img-src 'self' https: http: data:"
     }
 }

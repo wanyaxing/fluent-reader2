@@ -28,6 +28,7 @@ export namespace Card {
         onClick: (e: React.MouseEvent) => onClick(props, e),
         onMouseUp: (e: React.MouseEvent) => onMouseUp(props, e),
         onKeyDown: (e: React.KeyboardEvent) => onKeyDown(props, e),
+        onContextMenu: (e: React.MouseEvent) => onContextMenu(props, e),
     })
 
     const onClick = (props: Props, e: React.MouseEvent) => {
@@ -57,6 +58,12 @@ export namespace Card {
             case 2:
                 props.contextMenu(props.feedId, props.item, e)
         }
+    }
+
+    const onContextMenu = (props: Props, e: React.MouseEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        props.contextMenu(props.feedId, props.item, e)
     }
 
     const onKeyDown = (props: Props, e: React.KeyboardEvent) => {
