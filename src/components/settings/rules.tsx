@@ -389,14 +389,14 @@ class RulesTab extends React.Component<RulesTabProps, RulesTabState> {
 
             {this.state.sid ? (
                 this.state.editIndex > -1 ||
-                !this.getSourceRules() ||
-                this.getSourceRules().length === 0 ? (
+                    !this.getSourceRules() ||
+                    this.getSourceRules().length === 0 ? (
                     <>
                         <Label>
                             {intl.get(
                                 this.state.editIndex >= 0 &&
                                     this.state.editIndex <
-                                        this.getSourceRules().length
+                                    this.getSourceRules().length
                                     ? "edit"
                                     : "rules.new"
                             )}
@@ -456,7 +456,7 @@ class RulesTab extends React.Component<RulesTabProps, RulesTabState> {
                                     disabled={
                                         this.state.regex.length == 0 ||
                                         validateRegex(this.state.regex) ===
-                                            null ||
+                                        null ||
                                         this.state.actionKeys.length == 0
                                     }
                                     text={intl.get("confirm")}
@@ -555,7 +555,7 @@ class RulesTab extends React.Component<RulesTabProps, RulesTabState> {
                         <Link
                             onClick={() =>
                                 window.utils.openExternal(
-                                    "https://github.com/yang991178/fluent-reader/wiki/Support#rules"
+                                    "https://github.com/foryoung365/fluent-reader2/wiki/Support#rules"
                                 )
                             }
                             style={{ marginLeft: 6 }}>

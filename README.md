@@ -10,7 +10,7 @@
 </p>
 <hr />
 
-**Fluent Reader 2** is an actively maintained fork of the original [Fluent Reader](https://github.com/yang991178/fluent-reader). As the original project is no longer maintained, this version focuses on adding modern features like AI integration and keeping dependencies up to date.
+**Fluent Reader 2** is an actively maintained fork of the original [Fluent Reader](https://github.com/foryoung365/fluent-reader2). As the original project is no longer maintained, this version focuses on adding modern features like AI integration and keeping dependencies up to date.
 
 ## Download
 
@@ -29,7 +29,7 @@ Integrate with Large Language Models (LLMs) to understand your feeds faster:
 ## Key Features
 
 <p align="center">
-  <img src="https://github.com/yang991178/fluent-reader/raw/master/docs/imgs/screenshot.jpg">
+  <img src="https://github.com/foryoung365/fluent-reader2/raw/master/docs/imgs/screenshot.jpg">
 </p>
 
 - **Modern UI**: Inspired by Fluent Design System with full dark mode support.
