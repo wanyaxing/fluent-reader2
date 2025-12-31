@@ -456,6 +456,21 @@ class Article extends React.Component<ArticleProps, ArticleState> {
         const map = this.state.aiTranslationMap
         if (Object.keys(map).length === 0) return
 
+        // @ts-ignore
+        const isExtension = window.chrome && window.chrome.runtime
+
+        // @ts-ignore - contentWindow exists on iframe but not on WebviewTag
+        if (isExtension && this.webview && this.webview.contentWindow) {
+            // Use postMessage for extension mode
+            // @ts-ignore
+            this.webview.contentWindow.postMessage({
+                type: "INJECT_TRANSLATIONS",
+                map: map
+            }, "*")
+            return
+        }
+
+
         const script = `
             (function() {
                 var article = document.querySelector("article");
@@ -500,6 +515,26 @@ class Article extends React.Component<ArticleProps, ArticleState> {
                 summaryHtml = this.state.aiSummary
             }
         }
+
+        // @ts-ignore
+        const isExtension = window.chrome && window.chrome.runtime
+
+        // @ts-ignore - contentWindow exists on iframe but not on WebviewTag
+        if (isExtension && this.webview && this.webview.contentWindow) {
+            // Use postMessage for extension mode
+            // @ts-ignore
+            this.webview.contentWindow.postMessage({
+                type: "UPDATE_AI_UI",
+                hasSummary: hasSummary,
+                summaryHtml: summaryHtml,
+                summaryTitle: summaryTitle,
+                isLoading: this.state.aiLoading,
+                loadingText: loadingText,
+                buttonText: buttonText
+            }, "*")
+            return
+        }
+
 
         const script = `
             (function() {
@@ -610,9 +645,17 @@ class Article extends React.Component<ArticleProps, ArticleState> {
     }
 
     handleMessage = (event: MessageEvent) => {
-        console.log("[ArticleMain] handleMessage received:", event.data);
+        console.log("[ArticleMain] handleMessage received:", event.data?.type);
         if (event.data && event.data.type === "READY") {
             this.sendArticleContent()
+            // Inject AI UI after content is ready
+            if (this.state.aiSummaryEnabled && !this.state.loadWebpage) {
+                setTimeout(() => this.injectAIUI(), 100)
+            }
+        } else if (event.data && event.data.type === "EXECUTE_AI_SUMMARY") {
+            this.generateSummary()
+        } else if (event.data && event.data.type === "OPEN_EXTERNAL") {
+            window.utils.openExternal(event.data.url, false)
         }
     }
 
