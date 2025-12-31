@@ -13,7 +13,7 @@
     "package-mac": "electron-builder --mac --x64",
     "package-mas": "bash build/resignAndPackage.sh",
     "package-linux": "electron-builder --linux --x64 -p never",
-    "build:extension": "webpack --config ./webpack.extension.js"
+    "build:extension": "webpack --config ./webpack.extension.js && node scripts/pack-extension.js"
   },
   "keywords": [],
   "author": "foryoung365",
@@ -26,6 +26,7 @@
     "@types/react": "^16.9.35",
     "@types/react-dom": "^16.9.8",
     "@types/react-redux": "^7.1.9",
+    "archiver": "^7.0.1",
     "electron": "^39.2.7",
     "electron-builder": "^25.1.8",
     "electron-react-devtools": "^0.5.3",
