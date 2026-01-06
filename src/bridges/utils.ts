@@ -59,7 +59,21 @@ const utilsBridge = {
     },
 
     showSaveDialog: async (filters: Electron.FileFilter[], path: string) => {
-        if (isExtension) return null
+        if (isExtension) {
+            // 在扩展模式下，返回一个使用浏览器下载 API 的写入函数
+            const fileName = path.split('/').pop() || 'export.opml'
+            return (content: string, _errmsg: string) => {
+                const blob = new Blob([content], { type: 'application/xml' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = fileName
+                document.body.appendChild(a)
+                a.click()
+                document.body.removeChild(a)
+                URL.revokeObjectURL(url)
+            }
+        }
         let result = (await ipcRenderer.invoke(
             "show-save-dialog",
             filters,
@@ -75,7 +89,41 @@ const utilsBridge = {
     },
 
     showOpenDialog: async (filters: Electron.FileFilter[]) => {
-        if (isExtension) return null
+        if (isExtension) {
+            // 在扩展模式下，使用 HTML5 File Input API
+            return new Promise<string | null>((resolve) => {
+                const input = document.createElement('input')
+                input.type = 'file'
+                // 从 filters 构建 accept 属性
+                const extensions = filters.flatMap(f => f.extensions.map(ext => `.${ext}`))
+                input.accept = extensions.join(',')
+                input.style.display = 'none'
+
+                input.onchange = async () => {
+                    if (input.files && input.files.length > 0) {
+                        const file = input.files[0]
+                        try {
+                            const text = await file.text()
+                            resolve(text)
+                        } catch (err) {
+                            console.error('Error reading file:', err)
+                            resolve(null)
+                        }
+                    } else {
+                        resolve(null)
+                    }
+                    document.body.removeChild(input)
+                }
+
+                input.oncancel = () => {
+                    resolve(null)
+                    document.body.removeChild(input)
+                }
+
+                document.body.appendChild(input)
+                input.click()
+            })
+        }
         return (await ipcRenderer.invoke("show-open-dialog", filters)) as string
     },
 
