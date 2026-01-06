@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "MF RSS Reader",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "现代化的 RSS 阅读器扩展，支持 AI 智能摘要、自动翻译，让您高效获取信息。",
     "permissions": [
         "storage",
