@@ -204,16 +204,10 @@ export const feverServiceHooks: ServiceHooks = {
         const state = getState()
         const configs = state.service as FeverConfigs
 
-        // 1. Fetch unread IDs from server to know what's actually unread there
-        const unreadResponse = await fetchAPI(configs, "&unread_item_ids")
-        if (typeof unreadResponse.unread_item_ids !== "string") return
-        const serverUnreadIds = new Set(
-            unreadResponse.unread_item_ids.split(",")
-        )
-
-        // 2. Query local DB for mapping of serviceRef to source and date
+        // 1. Query local DB for unread items in the selected view/range
         const predicates: lf.Predicate[] = [
             db.items.source.in(sids),
+            db.items.hasRead.eq(false),
             db.items.serviceRef.isNotNull(),
         ]
         if (date) {
@@ -228,14 +222,12 @@ export const feverServiceHooks: ServiceHooks = {
             .where(query)
             .exec()
 
-        const idsToMark = rows
-            .map(row => String(row["serviceRef"]))
-            .filter(ref => serverUnreadIds.has(ref))
+        const refs = rows.map(row => String(row["serviceRef"]))
 
-        if (idsToMark.length > 0) {
+        if (refs.length > 0) {
             const batches = []
-            for (let i = 0; i < idsToMark.length; i += 50) {
-                batches.push(idsToMark.slice(i, i + 50))
+            for (let i = 0; i < refs.length; i += 50) {
+                batches.push(refs.slice(i, i + 50))
             }
 
             await Promise.all(
@@ -248,21 +240,6 @@ export const feverServiceHooks: ServiceHooks = {
                 )
             )
         }
-
-        // 4. Also use bulk feed marking as a best-effort fallback
-        const sourcesToMark = sids
-            .map(sid => state.sources[sid])
-            .filter(source => source && source.serviceRef)
-
-        await Promise.all(
-            sourcesToMark.map(source => {
-                return fetchAPI(
-                    configs,
-                    "",
-                    `&mark=feed&as=read&id=${source.serviceRef}`
-                ).catch(err => console.log(err))
-            })
-        )
     },
 
     markRead: (item: RSSItem) => async (_, getState) => {

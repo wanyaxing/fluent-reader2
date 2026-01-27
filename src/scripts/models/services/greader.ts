@@ -349,60 +349,32 @@ export const gReaderServiceHooks: ServiceHooks = {
     markAllRead: (sids, date, before) => async (_, getState) => {
         const state = getState()
         const configs = state.service as GReaderConfigs
-        if (date && !before) {
-            const predicates: lf.Predicate[] = [
-                db.items.source.in(sids),
-                db.items.hasRead.eq(false),
-                db.items.serviceRef.isNotNull(),
-                db.items.date.gte(date),
-            ]
-            const query = lf.op.and.apply(null, predicates)
-            const rows = await db.itemsDB
-                .select(db.items.serviceRef)
-                .from(db.items)
-                .where(query)
-                .exec()
-            const refs = rows.map(row => row["serviceRef"])
-            if (refs.length > 0) {
-                await editTags(getState().service as GReaderConfigs, refs, READ_TAG)
-            }
-        } else {
-            // Query sources to mark
-            const sourcesToMark = sids
-                .map(sid => state.sources[sid])
-                .filter(source => source && source.serviceRef)
 
-            const timestamp = date ? date.getTime() * 1000 : Date.now() * 1000
+        // 1. Query local DB for unread items in the selected view/range
+        const predicates: lf.Predicate[] = [
+            db.items.source.in(sids),
+            db.items.hasRead.eq(false),
+            db.items.serviceRef.isNotNull(),
+        ]
+        if (date) {
+            predicates.push(
+                before ? db.items.date.lte(date) : db.items.date.gte(date)
+            )
+        }
+        const query = lf.op.and.apply(null, predicates)
+        const rows = await db.itemsDB
+            .select(db.items.serviceRef)
+            .from(db.items)
+            .where(query)
+            .exec()
 
-            for (let source of sourcesToMark) {
-                // 1. Fetch unread IDs for this feed from server
-                fetchAll(
-                    configs,
-                    `/reader/api/0/stream/items/ids?output=json&s=${source.serviceRef}&xt=${READ_TAG}&n=1000`
-                ).then(refs => {
-                    const idsToMark = Array.from(refs)
-                    if (date) {
-                        // We rely on local DB only for date-based filtering if needed, 
-                        // but since GReader doesn't return dates for ID-only requests, 
-                        // we prioritize the bulk API with TS for date-based operations.
-                    } else if (idsToMark.length > 0) {
-                        editTags(configs, idsToMark, READ_TAG).catch(err =>
-                            console.log(err)
-                        )
-                    }
-                })
+        const refs = rows.map(row => row["serviceRef"])
 
-                // 2. Also use bulk API as fallback/primary for date-based operations
-                const body = new URLSearchParams()
-                body.set("s", source.serviceRef)
-                body.set("ts", String(timestamp))
-                fetchAPI(
-                    configs,
-                    "/reader/api/0/mark-all-as-read",
-                    "POST",
-                    body
-                ).catch(err => console.log(err))
-            }
+        // 2. Mark these IDs as read using editTags
+        if (refs.length > 0) {
+            await editTags(configs, refs, READ_TAG).catch(err =>
+                console.log(err)
+            )
         }
     },
 

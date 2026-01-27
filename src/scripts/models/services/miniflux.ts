@@ -297,65 +297,44 @@ export const minifluxServiceHooks: ServiceHooks = {
         const state = getState()
         const configs = state.service as MinifluxConfigs
 
-        if (date && !before) {
-            const predicates: lf.Predicate[] = [
-                db.items.source.in(sids),
-                db.items.hasRead.eq(false),
-                db.items.serviceRef.isNotNull(),
-                db.items.date.gte(date),
-            ]
-            const query = lf.op.and.apply(null, predicates)
-            const rows = await db.itemsDB
-                .select(db.items.serviceRef)
-                .from(db.items)
-                .where(query)
-                .exec()
-            const refs = rows.map(row => row["serviceRef"])
-            if (refs.length > 0) {
-                const body = `{
-                    "entry_ids": [${refs}],
-                    "status": "read"
-                }`
-                await fetchAPI(configs, "entries", "PUT", body)
+        // 1. Query local DB for unread items in the selected view/range
+        const predicates: lf.Predicate[] = [
+            db.items.source.in(sids),
+            db.items.hasRead.eq(false),
+            db.items.serviceRef.isNotNull(),
+        ]
+        if (date) {
+            predicates.push(
+                before ? db.items.date.lte(date) : db.items.date.gte(date)
+            )
+        }
+        const query = lf.op.and.apply(null, predicates)
+        const rows = await db.itemsDB
+            .select(db.items.serviceRef)
+            .from(db.items)
+            .where(query)
+            .exec()
+
+        const refs = rows.map(row => row["serviceRef"])
+
+        // 2. Mark these IDs as read via bulk entries update
+        if (refs.length > 0) {
+            const batches = []
+            for (let i = 0; i < refs.length; i += 100) {
+                batches.push(refs.slice(i, i + 100))
             }
-        } else {
-            // Query sources to mark
-            const sources = state.sources
-            for (let sid of sids) {
-                const source = sources[sid]
-                if (!source?.serviceRef) continue
 
-                // 1. Fetch unread IDs for this feed from server
-                let url = `feeds/${source.serviceRef}/entries?status=unread&limit=1000`
-                if (date && before) {
-                    const timestamp = Math.floor(date.getTime() / 1000)
-                    url += `&published_before=${timestamp}`
-                }
-
-                fetchAPI(configs, url)
-                    .then(res => res.json())
-                    .then(json => {
-                        const entries = json.entries as Entry[]
-                        if (entries && entries.length > 0) {
-                            const refs = entries.map(e => e.id)
-                            const body = `{
-                                "entry_ids": [${refs}],
-                                "status": "read"
-                            }`
-                            fetchAPI(configs, "entries", "PUT", body).catch(
-                                err => console.log(err)
-                            )
-                        }
-                    })
-                    .catch(err => console.log(err))
-
-                // 2. Also use bulk feed-wide API as fallback
-                fetchAPI(
-                    configs,
-                    `feeds/${source.serviceRef}/mark-all-as-read`,
-                    "PUT"
-                ).catch(err => console.log(err))
-            }
+            await Promise.all(
+                batches.map(batch => {
+                    const body = `{
+                        "entry_ids": [${batch}],
+                        "status": "read"
+                    }`
+                    return fetchAPI(configs, "entries", "PUT", body).catch(
+                        err => console.log(err)
+                    )
+                })
+            )
         }
     },
 

@@ -256,40 +256,7 @@ export const nextcloudServiceHooks: ServiceHooks = {
         const state = getState()
         const configs = state.service as NextcloudConfigs
 
-        for (let sid of sids) {
-            const source = state.sources[sid]
-            if (!source?.serviceRef) continue
-
-            // 1. Fetch unread IDs for this feed from server
-            let url = `/items?feedId=${source.serviceRef}&getRead=false&batchSize=200`
-            fetchAPI(configs, url)
-                .then(res => res.json())
-                .then(json => {
-                    const items = json.items as any[]
-                    if (items && items.length > 0) {
-                        let idsToMark = items.map(i => i.id)
-                        if (date) {
-                            const cutoff = Math.floor(date.getTime() / 1000)
-                            idsToMark = items
-                                .filter(i => {
-                                    return before
-                                        ? i.pubDate <= cutoff
-                                        : i.pubDate >= cutoff
-                                })
-                                .map(i => i.id)
-                        }
-
-                        if (idsToMark.length > 0) {
-                            markItems(configs, "read", "POST", idsToMark).catch(
-                                err => console.log(err)
-                            )
-                        }
-                    }
-                })
-                .catch(err => console.log(err))
-        }
-
-        // 2. Also fallback to local DB records
+        // 1. Query local DB for unread items in the selected view/range
         const predicates: lf.Predicate[] = [
             db.items.source.in(sids),
             db.items.hasRead.eq(false),
@@ -306,7 +273,10 @@ export const nextcloudServiceHooks: ServiceHooks = {
             .from(db.items)
             .where(query)
             .exec()
+
         const refs = rows.map(row => parseInt(row["serviceRef"]))
+
+        // 2. Mark these IDs as read
         if (refs.length > 0) {
             await markItems(configs, "read", "POST", refs).catch(err =>
                 console.log(err)
