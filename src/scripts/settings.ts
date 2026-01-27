@@ -74,7 +74,13 @@ export function getThemeSettings(): ThemeSettings {
     return window.settings.getThemeSettings()
 }
 export function applyThemeSettings() {
-    loadTheme(window.settings.shouldUseDarkColors() ? darkTheme : lightTheme)
+    const isDark = window.settings.shouldUseDarkColors()
+    loadTheme(isDark ? darkTheme : lightTheme)
+    if (isDark) {
+        document.documentElement.setAttribute("data-theme", "dark")
+    } else {
+        document.documentElement.removeAttribute("data-theme")
+    }
 }
 window.settings.addThemeUpdateListener(shouldDark => {
     loadTheme(shouldDark ? darkTheme : lightTheme)

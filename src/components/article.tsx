@@ -296,6 +296,8 @@ class Article extends React.Component<ArticleProps, ArticleState> {
                             .ai-summary-card { background: #323130; } 
                             .ai-summary-content code { background: rgba(255,255,255,0.1); }
                         }
+                        [data-theme="dark"] .ai-summary-card { background: #323130; } 
+                        [data-theme="dark"] .ai-summary-content code { background: rgba(255,255,255,0.1); }
                         .ai-summary-title { font-weight: 600; margin-top: 0; margin-bottom: 8px; font-size: 12px; color: var(--gray); text-transform: uppercase; }
                         .ai-summary-loading { color: var(--gray); font-size: 13px; margin: 12px 0; }
                         .ai-translation { color: var(--primary); font-size: 0.9em; margin-top: 4px; border-left: 2px solid var(--primary-light); padding-left: 8px; opacity: 0.8; }
@@ -713,6 +715,8 @@ class Article extends React.Component<ArticleProps, ArticleState> {
                             .ai-summary-card { background: #323130; } 
                             .ai-summary-content code { background: rgba(255,255,255,0.1); }
                         }
+                        [data-theme="dark"] .ai-summary-card { background: #323130; } 
+                        [data-theme="dark"] .ai-summary-content code { background: rgba(255,255,255,0.1); }
                         .ai-summary-title { font-weight: 600; margin-top: 0; margin-bottom: 8px; font-size: 12px; color: var(--gray); text-transform: uppercase; }
                         .ai-summary-loading { color: var(--gray); font-size: 13px; margin: 12px 0; }
                         .ai-translation { color: var(--primary); font-size: 0.9em; margin-top: 4px; border-left: 2px solid var(--primary-light); padding-left: 8px; opacity: 0.8; }

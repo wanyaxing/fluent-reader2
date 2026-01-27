@@ -32,6 +32,17 @@ body.vertical {
         --primary-alt: #65aee6;
     }
 }
+:root[data-theme="dark"] {
+    color: #f8f8f8;
+    --gray: #a19f9d;
+    --primary: #4ba0e1;
+    --primary-alt: #65aee6;
+    background-color: #1f1f1f;
+}
+:root[data-theme="dark"] body {
+    background-color: #1f1f1f;
+    color: #f8f8f8;
+}
 
 h1,
 h2,
