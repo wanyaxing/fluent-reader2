@@ -235,6 +235,37 @@ export const feedbinServiceHooks: ServiceHooks = {
     markAllRead: (sids, date, before) => async (_, getState) => {
         const state = getState()
         const configs = state.service as FeedbinConfigs
+
+        for (let sid of sids) {
+            const source = state.sources[sid]
+            if (!source?.serviceRef) continue
+
+            // 1. Fetch unread IDs for this feed from server
+            let url = `entries.json?feed_id=${source.serviceRef}&read=false&per_page=100`
+            fetchAPI(configs, url)
+                .then(res => res.json())
+                .then(entries => {
+                    let idsToMark = entries.map(e => e.id)
+                    if (date) {
+                        const cutoff = date.getTime()
+                        idsToMark = entries
+                            .filter(e => {
+                                const d = new Date(e.published).getTime()
+                                return before ? d <= cutoff : d >= cutoff
+                            })
+                            .map(e => e.id)
+                    }
+
+                    if (idsToMark.length > 0) {
+                        markItems(configs, "unread", "DELETE", idsToMark).catch(
+                            err => console.log(err)
+                        )
+                    }
+                })
+                .catch(err => console.log(err))
+        }
+
+        // 2. Also fallback to local DB records just in case
         const predicates: lf.Predicate[] = [
             db.items.source.in(sids),
             db.items.hasRead.eq(false),
@@ -252,7 +283,11 @@ export const feedbinServiceHooks: ServiceHooks = {
             .where(query)
             .exec()
         const refs = rows.map(row => parseInt(row["serviceRef"]))
-        await markItems(configs, "unread", "DELETE", refs)
+        if (refs.length > 0) {
+            await markItems(configs, "unread", "DELETE", refs).catch(err =>
+                console.log(err)
+            )
+        }
     },
 
     markRead: (item: RSSItem) => async (_, getState) => {

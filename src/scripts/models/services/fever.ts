@@ -203,63 +203,66 @@ export const feverServiceHooks: ServiceHooks = {
     markAllRead: (sids, date, before) => async (_, getState) => {
         const state = getState()
         const configs = state.service as FeverConfigs
-        if (date && !before) {
-            // Mark articles newer than date - must use individual markItem
-            const predicates: lf.Predicate[] = [
-                db.items.source.in(sids),
-                db.items.hasRead.eq(false),
-                db.items.serviceRef.isNotNull(),
-                db.items.date.gte(date),
-            ]
-            const query = lf.op.and.apply(null, predicates)
-            const rows = await db.itemsDB
-                .select(db.items.serviceRef)
-                .from(db.items)
-                .where(query)
-                .exec()
-            const refs = rows.map(row => row["serviceRef"])
-            await Promise.all(
-                refs.map(ref =>
-                    markItem(configs, { serviceRef: ref } as RSSItem, "read")
-                )
-            )
-        } else {
-            // Query unread items to find which feeds actually need to be marked
-            const predicates: lf.Predicate[] = [
-                db.items.source.in(sids),
-                db.items.hasRead.eq(false),
-                db.items.serviceRef.isNotNull(),
-            ]
-            if (date) {
-                predicates.push(db.items.date.lte(date))
-            }
-            const query = lf.op.and.apply(null, predicates)
-            const rows = await db.itemsDB
-                .select(db.items.source)
-                .from(db.items)
-                .where(query)
-                .exec()
 
-            // Get unique source IDs that have unread items
-            const unreadSourceIds = new Set<number>(rows.map(row => row["source"]))
+        // 1. Fetch unread IDs from server to know what's actually unread there
+        const unreadResponse = await fetchAPI(configs, "&unread_item_ids")
+        if (typeof unreadResponse.unread_item_ids !== "string") return
+        const serverUnreadIds = new Set(
+            unreadResponse.unread_item_ids.split(",")
+        )
 
-            // Only send requests for feeds that actually have unread items
-            const sourcesToMark = Array.from(unreadSourceIds)
-                .map(sid => state.sources[sid])
-                .filter(source => source && source.serviceRef)
-
-            const timestamp =
-                Math.floor((date ? date.getTime() : Date.now()) / 1000) + 1
-            await Promise.all(
-                sourcesToMark.map(source => {
-                    return fetchAPI(
-                        configs,
-                        "",
-                        `&mark=feed&as=read&id=${source.serviceRef}&before=${timestamp}`
-                    )
-                })
+        // 2. Query local DB for mapping of serviceRef to source and date
+        const predicates: lf.Predicate[] = [
+            db.items.source.in(sids),
+            db.items.serviceRef.isNotNull(),
+        ]
+        if (date) {
+            predicates.push(
+                before ? db.items.date.lte(date) : db.items.date.gte(date)
             )
         }
+        const query = lf.op.and.apply(null, predicates)
+        const rows = await db.itemsDB
+            .select(db.items.serviceRef)
+            .from(db.items)
+            .where(query)
+            .exec()
+
+        const idsToMark = rows
+            .map(row => String(row["serviceRef"]))
+            .filter(ref => serverUnreadIds.has(ref))
+
+        if (idsToMark.length > 0) {
+            const batches = []
+            for (let i = 0; i < idsToMark.length; i += 50) {
+                batches.push(idsToMark.slice(i, i + 50))
+            }
+
+            await Promise.all(
+                batches.map(batch =>
+                    fetchAPI(
+                        configs,
+                        "",
+                        `&mark=item&as=read&id=${batch.join(",")}`
+                    ).catch(err => console.log(err))
+                )
+            )
+        }
+
+        // 4. Also use bulk feed marking as a best-effort fallback
+        const sourcesToMark = sids
+            .map(sid => state.sources[sid])
+            .filter(source => source && source.serviceRef)
+
+        await Promise.all(
+            sourcesToMark.map(source => {
+                return fetchAPI(
+                    configs,
+                    "",
+                    `&mark=feed&as=read&id=${source.serviceRef}`
+                ).catch(err => console.log(err))
+            })
+        )
     },
 
     markRead: (item: RSSItem) => async (_, getState) => {

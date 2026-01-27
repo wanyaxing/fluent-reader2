@@ -349,17 +349,13 @@ export const gReaderServiceHooks: ServiceHooks = {
     markAllRead: (sids, date, before) => async (_, getState) => {
         const state = getState()
         const configs = state.service as GReaderConfigs
-        if (date) {
+        if (date && !before) {
             const predicates: lf.Predicate[] = [
                 db.items.source.in(sids),
                 db.items.hasRead.eq(false),
                 db.items.serviceRef.isNotNull(),
+                db.items.date.gte(date),
             ]
-            if (date) {
-                predicates.push(
-                    before ? db.items.date.lte(date) : db.items.date.gte(date)
-                )
-            }
             const query = lf.op.and.apply(null, predicates)
             const rows = await db.itemsDB
                 .select(db.items.serviceRef)
@@ -371,37 +367,41 @@ export const gReaderServiceHooks: ServiceHooks = {
                 await editTags(getState().service as GReaderConfigs, refs, READ_TAG)
             }
         } else {
-            // Query unread items to find which feeds actually need to be marked
-            const predicates: lf.Predicate[] = [
-                db.items.source.in(sids),
-                db.items.hasRead.eq(false),
-                db.items.serviceRef.isNotNull(),
-            ]
-            const query = lf.op.and.apply(null, predicates)
-            const rows = await db.itemsDB
-                .select(db.items.source)
-                .from(db.items)
-                .where(query)
-                .exec()
-
-            // Get unique source IDs that have unread items
-            const unreadSourceIds = new Set<number>(rows.map(row => row["source"]))
-
-            // Only send requests for feeds that actually have unread items
-            const sourcesToMark = Array.from(unreadSourceIds)
+            // Query sources to mark
+            const sourcesToMark = sids
                 .map(sid => state.sources[sid])
                 .filter(source => source && source.serviceRef)
 
+            const timestamp = date ? date.getTime() * 1000 : Date.now() * 1000
+
             for (let source of sourcesToMark) {
+                // 1. Fetch unread IDs for this feed from server
+                fetchAll(
+                    configs,
+                    `/reader/api/0/stream/items/ids?output=json&s=${source.serviceRef}&xt=${READ_TAG}&n=1000`
+                ).then(refs => {
+                    const idsToMark = Array.from(refs)
+                    if (date) {
+                        // We rely on local DB only for date-based filtering if needed, 
+                        // but since GReader doesn't return dates for ID-only requests, 
+                        // we prioritize the bulk API with TS for date-based operations.
+                    } else if (idsToMark.length > 0) {
+                        editTags(configs, idsToMark, READ_TAG).catch(err =>
+                            console.log(err)
+                        )
+                    }
+                })
+
+                // 2. Also use bulk API as fallback/primary for date-based operations
                 const body = new URLSearchParams()
                 body.set("s", source.serviceRef)
-                const res = await fetchAPI(
+                body.set("ts", String(timestamp))
+                fetchAPI(
                     configs,
                     "/reader/api/0/mark-all-as-read",
                     "POST",
                     body
-                )
-                if (!res.ok) throw APIError()
+                ).catch(err => console.log(err))
             }
         }
     },
