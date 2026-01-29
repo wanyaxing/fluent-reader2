@@ -42,7 +42,7 @@ class FeverConfigsTab extends React.Component<
             endpoint: configs.endpoint || "",
             username: configs.username || "",
             password: "",
-            fetchLimit: configs.fetchLimit || 250,
+            fetchLimit: configs.fetchLimit || 1000,
             importGroups: true,
         }
     }

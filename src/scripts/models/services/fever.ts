@@ -94,38 +94,83 @@ export const feverServiceHooks: ServiceHooks = {
         const configs = state.service as FeverConfigs
         const items = new Array()
         configs.lastId = configs.lastId || 0
-        let min = configs.useInt32 ? 2147483647 : Number.MAX_SAFE_INTEGER
-        let response
-        do {
-            response = await fetchAPI(configs, `&items&max_id=${min}`)
-            if (response.items === undefined) throw APIError()
-            items.push(...response.items.filter(i => i.id > configs.lastId))
-            if (
-                response.items.length === 0 &&
-                min === Number.MAX_SAFE_INTEGER
-            ) {
-                configs.useInt32 = true
-                min = 2147483647
-                response = undefined
-            } else {
-                min = response.items.reduce((m, n) => Math.min(m, n.id), min)
+
+        // 1. Unread Discovery: Fetch authoritative unread IDs from server
+        let unreadIdsFromServer: string[] = []
+        try {
+            const unreadResponse = await fetchAPI(configs, "&unread_item_ids")
+            if (typeof unreadResponse.unread_item_ids === "string") {
+                unreadIdsFromServer = unreadResponse.unread_item_ids.split(",")
             }
-        } while (
-            min > configs.lastId &&
-            (response === undefined || response.items.length >= 50) &&
-            items.length < configs.fetchLimit
-        )
-        if (items.length < configs.fetchLimit || response.items.length < 50) {
+        } catch (err) {
+            console.log("Fever unread discovery failed", err)
+        }
+
+        // 2. Identify missing articles (unread on server but not in local DB)
+        let missingIds: string[] = []
+        if (unreadIdsFromServer.length > 0) {
+            const existingRefsRows = await db.itemsDB
+                .select(db.items.serviceRef)
+                .from(db.items)
+                .where(db.items.serviceRef.in(unreadIdsFromServer))
+                .exec()
+            const existingRefs = new Set(existingRefsRows.map(r => String(r["serviceRef"])))
+            missingIds = unreadIdsFromServer.filter(id => !existingRefs.has(id))
+        }
+
+        // 3. Targeted Fetching: Fetch missing articles in batches
+        if (missingIds.length > 0) {
+            const batchSize = 50
+            for (let i = 0; i < missingIds.length && items.length < configs.fetchLimit; i += batchSize) {
+                const batch = missingIds.slice(i, i + batchSize)
+                try {
+                    const response = await fetchAPI(configs, `&items&with_ids=${batch.join(",")}`)
+                    if (response.items) {
+                        items.push(...response.items)
+                    }
+                } catch (err) {
+                    console.log("Fever targeted fetch failed", err)
+                }
+            }
+        }
+
+        // 4. Enhanced Kindle Crawl: Fetch new/recent items if we have room
+        if (items.length < configs.fetchLimit) {
+            let min = configs.useInt32 ? 2147483647 : Number.MAX_SAFE_INTEGER
+            let response
+            do {
+                response = await fetchAPI(configs, `&items&max_id=${min}`)
+                if (response.items === undefined) throw APIError()
+
+                // Only add items we haven't already fetched in this session (Discovery)
+                const existingFetchedIds = new Set(items.map(i => i.id))
+                const newItems = response.items.filter(i => i.id > configs.lastId && !existingFetchedIds.has(i.id))
+                items.push(...newItems)
+
+                if (response.items.length === 0 && min === Number.MAX_SAFE_INTEGER) {
+                    configs.useInt32 = true
+                    min = 2147483647
+                    response = undefined
+                } else if (response.items.length > 0) {
+                    min = response.items.reduce((m, n) => Math.min(m, n.id), min)
+                } else {
+                    break // End of history on server
+                }
+            } while (
+                min > configs.lastId &&
+                (response === undefined || response.items.length > 0) &&
+                items.length < configs.fetchLimit
+            )
+        }
+
+        // 5. Update lastId to track the newest item for future incremental syncs
+        if (items.length > 0) {
             configs.lastId = items.reduce(
                 (m, n) => Math.max(m, n.id),
                 configs.lastId
             )
-        } else {
-            configs.lastId = items.reduce(
-                (m, n) => Math.min(m, n.id),
-                configs.lastId
-            )
         }
+
         if (items.length > 0) {
             const fidMap = new Map<string, RSSSource>()
             for (let source of Object.values(state.sources)) {
@@ -135,6 +180,7 @@ export const feverServiceHooks: ServiceHooks = {
             }
             const parsedItems = items.map(i => {
                 const source = fidMap.get(String(i.feed_id))
+                if (!source) return null
                 const item = {
                     source: source.sid,
                     title: i.title,
@@ -171,12 +217,16 @@ export const feverServiceHooks: ServiceHooks = {
                 }
                 // Apply rules and sync back to the service
                 if (source.rules) SourceRule.applyAll(source.rules, item)
+
+                // Only mark if local status differs from server status to avoid loops
+                // Note: items from Fever are already in server status. 
+                // We only need to check if user has local rules that override status.
                 if (Boolean(i.is_read) !== item.hasRead)
                     markItem(configs, item, item.hasRead ? "read" : "unread")
                 if (Boolean(i.is_saved) !== Boolean(item.starred))
                     markItem(configs, item, item.starred ? "saved" : "unsaved")
                 return item
-            })
+            }).filter(i => i !== null)
             return [parsedItems, configs]
         } else {
             return [[], configs]
@@ -224,21 +274,19 @@ export const feverServiceHooks: ServiceHooks = {
 
         const refs = rows.map(row => String(row["serviceRef"]))
 
+        // 2. Mark each ID individually with throttle (Fever level 3 doesn't support multiple IDs)
         if (refs.length > 0) {
-            const batches = []
-            for (let i = 0; i < refs.length; i += 50) {
-                batches.push(refs.slice(i, i + 50))
-            }
-
-            await Promise.all(
-                batches.map(batch =>
-                    fetchAPI(
-                        configs,
-                        "",
-                        `&mark=item&as=read&id=${batch.join(",")}`
-                    ).catch(err => console.log(err))
+            const throttleLimit = 5
+            for (let i = 0; i < refs.length; i += throttleLimit) {
+                const batch = refs.slice(i, i + throttleLimit)
+                await Promise.all(
+                    batch.map(ref =>
+                        fetchAPI(configs, "", `&mark=item&as=read&id=${ref}`).catch(
+                            err => console.log(err)
+                        )
+                    )
                 )
-            )
+            }
         }
     },
 
